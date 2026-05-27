@@ -1,0 +1,16 @@
+# SelfEvolvingAI - 零外部依赖
+# 所有功能使用Python标准库实现
+# 以下为可选依赖，用于增强功能
+
+# 可选: 更好的HTTP客户端
+# requests>=2.28.0
+
+# 可选: 异步支持
+# aiohttp>=3.8.0
+
+# 可选: 数据库支持
+# sqlalchemy>=2.0.0
+
+# 可选: 向量数据库
+# chromadb>=0.4.0
+# faiss-cpu>=1.7.0
