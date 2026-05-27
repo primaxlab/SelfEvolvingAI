@@ -1,4 +1,4 @@
-# 🧬 SelfEvolvingAI - 自我进化AI系统（超级版 v4.0）
+# 🧬 SelfEvolvingAI - 自我进化AI系统
 
 **集成64个模块的完整自我进化AI系统框架**
 
