@@ -883,14 +883,14 @@ class SelfEvolvingAI:
         })
 
         # 11. 预测学习
-        predictions = self.predictive_learning.predict_trend()
+        predictions = self.predictive_learning.predict_trend('default')
         evolution_results['improvements'].append({
             'type': 'predictive_learning',
             'result': str(predictions)[:200],
         })
 
         # 12. 主动探索
-        exploration = self.active_exploration.discover_gaps()
+        exploration = self.active_exploration.discover_gaps({})
         evolution_results['improvements'].append({
             'type': 'active_exploration',
             'result': str(exploration)[:200],

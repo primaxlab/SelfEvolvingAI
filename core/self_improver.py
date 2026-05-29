@@ -220,7 +220,7 @@ class CodeAnalyzer:
 
         # 4. 缺少文档字符串
         if not (node.body and isinstance(node.body[0], ast.Expr)
-                and isinstance(node.body[0].value, ast.Str)):
+                and isinstance(node.body[0].value, ast.Constant) and isinstance(getattr(node.body[0].value, 'value', None), str)):
             issues.append(CodeIssue(
                 id=f"doc_{node.name}_{node.lineno}",
                 file_path=file_path,

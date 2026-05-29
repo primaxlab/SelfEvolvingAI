@@ -199,10 +199,10 @@ class MessageQueueEngine:
         )
         self.queues[name] = queue
 
-        # 自动创建死信队列
+        # 自动创建死信队列（避免无限递归：DLQ 不再创建自己的 DLQ）
         dlq_name = queue.dead_letter_queue
-        if dlq_name not in self.queues:
-            self.create_queue(dlq_name, "standard", max_size=1000)
+        if dlq_name not in self.queues and not dlq_name.endswith('_dlq'):
+            self.create_queue(dlq_name, "standard", max_size=1000, dead_letter_queue="")
 
         self._save()
         return queue_id

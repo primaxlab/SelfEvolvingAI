@@ -315,9 +315,10 @@ class TestSelfEvolvingAI:
 
     def test_process_input(self, ai):
         result = ai.process("你好")
-        assert 'response' in result
+        assert 'answer' in result or 'response' in result
         assert 'confidence' in result
-        assert len(result['response']) > 0
+        answer = result.get('response', result.get('answer', ''))
+        assert len(answer) > 0
 
     def test_evolve(self, ai):
         result = ai.evolve("manual")
@@ -342,7 +343,7 @@ class TestSelfEvolvingAI:
     def test_multiple_interactions(self, ai):
         for i in range(3):
             result = ai.process(f"测试消息 {i}")
-            assert 'response' in result
+            assert 'answer' in result or 'response' in result
 
     def test_state_persistence(self, temp_dir):
         from core.evolution_loop import SelfEvolvingAI

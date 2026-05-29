@@ -592,7 +592,9 @@ class EmotionalIntelligenceEngine:
                 for trigger, count in sorted_triggers[:5]:
                     report.append(f"  - {trigger}: {count}次")
 
-            report.append(f"\n偏好响应风格: {pattern.preferred_response_style.value}")
+            style = pattern.preferred_response_style
+            style_val = style.value if hasattr(style, 'value') else str(style)
+            report.append(f"\n偏好响应风格: {style_val}")
         else:
             report.append("\n暂无用户情感数据")
 

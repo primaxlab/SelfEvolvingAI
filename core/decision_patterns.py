@@ -357,9 +357,18 @@ class DecisionPatternLearningEngine:
         with open(self.storage_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
-    def make_decision(self, context: DecisionContext,
+    def make_decision(self, context,
                        reasoning: str = "") -> dict:
         """做出决策"""
+        # 兼容 dict 和 DecisionContext
+        if isinstance(context, dict):
+            context = DecisionContext(
+                situation=context.get('input', context.get('situation', '')),
+                constraints=context.get('constraints', []),
+                goals=context.get('goals', []),
+                available_options=context.get('available_options', context.get('modules', [])),
+                metadata=context.get('metadata', {k: v for k, v in context.items() if k not in ('input', 'situation', 'constraints', 'goals', 'available_options', 'modules')}),
+            )
         # 查找匹配的模式
         pattern = self.pattern_recognizer.find_matching_pattern(context)
 
