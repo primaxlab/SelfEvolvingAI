@@ -1,0 +1,344 @@
+"""
+================================================================================
+SelfEvolvingAI - FastAPI 后端
+================================================================================
+
+RESTful API + WebSocket 实时通信
+
+启动: python server.py [--port 8000] [--host 0.0.0.0]
+"""
+
+import os
+import sys
+import json
+import time
+import asyncio
+import argparse
+from typing import Optional, List
+from contextlib import asynccontextmanager
+
+# Windows UTF-8 支持
+if sys.platform == 'win32':
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from core.evolution_loop import SelfEvolvingAI
+
+# ==================== 全局状态 ====================
+ai: Optional[SelfEvolvingAI] = None
+start_time = time.time()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期"""
+    global ai
+    storage_dir = os.path.join(os.path.dirname(__file__), ".evolution", "data")
+    ai = SelfEvolvingAI(storage_dir)
+    print(f"✅ SelfEvolvingAI 已启动 | {ai.state.modules_loaded} 个模块加载")
+    yield
+    print("🛑 SelfEvolvingAI 已关闭")
+
+
+app = FastAPI(
+    title="SelfEvolvingAI",
+    description="70模块自我进化AI系统 API",
+    version="4.0.0",
+    lifespan=lifespan,
+)
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ==================== 数据模型 ====================
+
+class ChatRequest(BaseModel):
+    message: str
+    provider: str = "local"
+    stream: bool = False
+
+
+class LearnRequest(BaseModel):
+    content: str
+    source: str = "user"
+
+
+class GoalRequest(BaseModel):
+    goal: str
+    priority: str = "medium"
+
+
+class EvolveRequest(BaseModel):
+    trigger: str = "manual"
+
+
+# ==================== API 路由 ====================
+
+@app.get("/")
+async def root():
+    return {
+        "name": "SelfEvolvingAI",
+        "version": "4.0.0",
+        "modules": ai.state.modules_loaded,
+        "uptime": time.time() - start_time,
+    }
+
+
+@app.get("/api/status")
+async def get_status():
+    """系统状态"""
+    return {
+        "status": "running",
+        "version": "4.0.0",
+        "modules_loaded": ai.state.modules_loaded,
+        "generation": ai.state.generation,
+        "total_interactions": ai.state.total_interactions,
+        "total_evolutions": ai.state.total_evolutions,
+        "uptime": time.time() - start_time,
+        "start_time": start_time,
+    }
+
+
+@app.get("/api/modules")
+async def get_modules():
+    """所有模块状态"""
+    return ai.get_all_module_stats()
+
+
+@app.get("/api/modules/{module_id}")
+async def get_module(module_id: str):
+    """单个模块状态"""
+    stats = ai.get_all_module_stats()
+    if module_id in stats:
+        return stats[module_id]
+    raise HTTPException(status_code=404, detail=f"模块 {module_id} 不存在")
+
+
+@app.get("/api/memory")
+async def get_memory():
+    """记忆系统"""
+    return ai.memory.summarize()
+
+
+@app.get("/api/knowledge")
+async def get_knowledge():
+    """知识图谱"""
+    return ai.knowledge_graph.get_graph_stats()
+
+
+@app.get("/api/report")
+async def get_report():
+    """进化报告"""
+    return {"report": ai.generate_evolution_report()}
+
+
+@app.get("/api/health")
+async def health():
+    """健康检查"""
+    return {
+        "status": "healthy",
+        "uptime": time.time() - start_time,
+        "modules": ai.state.modules_loaded,
+    }
+
+
+@app.get("/api/providers")
+async def get_providers():
+    """LLM 提供商"""
+    return ai.llm.get_stats()
+
+
+@app.post("/api/chat")
+async def chat(req: ChatRequest):
+    """聊天"""
+    if not req.message:
+        raise HTTPException(status_code=400, detail="message is required")
+
+    result = ai.process(req.message)
+    return {
+        "answer": result.get("answer", result.get("response", "")),
+        "confidence": result.get("confidence", 0),
+        "domain": result.get("domain", "other"),
+        "modules_used": result.get("modules_used", []),
+        "timestamp": time.time(),
+    }
+
+
+@app.post("/api/chat/stream")
+async def chat_stream(req: ChatRequest):
+    """流式聊天"""
+    if not req.message:
+        raise HTTPException(status_code=400, detail="message is required")
+
+    async def generate():
+        result = ai.process(req.message)
+        answer = result.get("answer", result.get("response", ""))
+        # 模拟流式输出
+        for i in range(0, len(answer), 3):
+            chunk = answer[i:i+3]
+            yield f"data: {json.dumps({'chunk': chunk, 'done': False}, ensure_ascii=False)}\n\n"
+            await asyncio.sleep(0.02)
+        yield f"data: {json.dumps({'chunk': '', 'done': True, 'confidence': result.get('confidence', 0), 'domain': result.get('domain', 'other')}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+@app.get("/api/stats/summary")
+async def get_stats_summary():
+    """系统概览统计"""
+    stats = ai.get_all_module_stats()
+    memory = ai.memory.summarize()
+    kg = ai.knowledge_graph.get_graph_stats()
+    return {
+        "modules": len(stats),
+        "memory": memory,
+        "knowledge": kg,
+        "generation": ai.state.generation,
+        "interactions": ai.state.total_interactions,
+    }
+
+
+@app.post("/api/learn")
+async def learn(req: LearnRequest):
+    """学习知识"""
+    if not req.content:
+        raise HTTPException(status_code=400, detail="content is required")
+
+    result = ai.learn_from_knowledge(req.content, source=req.source)
+    return {"success": True, "result": result}
+
+
+@app.post("/api/evolve")
+async def evolve(req: EvolveRequest):
+    """触发进化"""
+    result = ai.evolve(req.trigger)
+    return {
+        "success": True,
+        "generation": ai.state.generation,
+        "improvements": len(result.get("improvements", [])),
+        "duration": result.get("duration", 0),
+        "details": result.get("improvements", []),
+    }
+
+
+@app.post("/api/goal")
+async def set_goal(req: GoalRequest):
+    """设定目标"""
+    result = ai.goal_planning.add_goal(
+        description=req.goal,
+        priority=req.priority,
+    )
+    return {"success": True, "goal": result}
+
+
+@app.get("/api/goals")
+async def get_goals():
+    """获取目标列表"""
+    return ai.goal_planning.get_all_goals()
+
+
+# ==================== WebSocket ====================
+
+class ConnectionManager:
+    """WebSocket 连接管理"""
+    def __init__(self):
+        self.active: List[WebSocket] = []
+
+    async def connect(self, ws: WebSocket):
+        await ws.accept()
+        self.active.append(ws)
+
+    def disconnect(self, ws: WebSocket):
+        self.active.remove(ws)
+
+    async def broadcast(self, message: dict):
+        for conn in self.active:
+            try:
+                await conn.send_json(message)
+            except:
+                pass
+
+manager = ConnectionManager()
+
+
+@app.websocket("/ws")
+async def websocket_endpoint(ws: WebSocket):
+    """WebSocket 实时通信"""
+    await manager.connect(ws)
+    try:
+        while True:
+            data = await ws.receive_json()
+            msg_type = data.get("type", "")
+
+            if msg_type == "chat":
+                result = ai.process(data.get("message", ""))
+                await ws.send_json({
+                    "type": "chat_response",
+                    "answer": result.get("answer", result.get("response", "")),
+                    "confidence": result.get("confidence", 0),
+                    "domain": result.get("domain", "other"),
+                    "modules_used": result.get("modules_used", []),
+                })
+
+            elif msg_type == "evolve":
+                result = ai.evolve("manual")
+                await ws.send_json({
+                    "type": "evolve_result",
+                    "generation": ai.state.generation,
+                    "improvements": len(result.get("improvements", [])),
+                })
+
+            elif msg_type == "status":
+                await ws.send_json({
+                    "type": "status",
+                    "modules_loaded": ai.state.modules_loaded,
+                    "generation": ai.state.generation,
+                    "interactions": ai.state.total_interactions,
+                })
+
+    except WebSocketDisconnect:
+        manager.disconnect(ws)
+
+
+# ==================== 静态文件服务 ====================
+
+# 前端构建产物
+frontend_dir = os.path.join(os.path.dirname(__file__), "frontend", "dist")
+if os.path.exists(frontend_dir):
+    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dir, "assets")), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        """SPA 路由 - 所有非 API 路径返回 index.html"""
+        file_path = os.path.join(frontend_dir, full_path)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+        return FileResponse(os.path.join(frontend_dir, "index.html"))
+
+
+# ==================== 启动 ====================
+
+if __name__ == "__main__":
+    import uvicorn
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=8000)
+    args = parser.parse_args()
+
+    print(f"🚀 SelfEvolvingAI API 启动于 http://{args.host}:{args.port}")
+    uvicorn.run(app, host=args.host, port=args.port)
