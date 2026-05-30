@@ -180,109 +180,67 @@ async def chat(req: ChatRequest):
     try:
         modules_used = result.get("modules_used", [])
 
-        # Step 2: 收集模块上下文
+        # Step 2: 收集模块上下文（协作式）
         context_parts = []
+
+        # 2a. 情感分析
+        emotion = result.get("emotion", {})
+        emotion_label = "neutral"
+        if isinstance(emotion, dict):
+            emotion_label = emotion.get("emotion", emotion.get("dominant_emotion", "neutral"))
+            emo_conf = emotion.get("confidence", 0)
+            if emotion_label != "neutral":
+                context_parts.append(f"[情感分析] 用户情绪: {emotion_label} (置信度{emo_conf:.0%})，请用相应语气回应")
+
+        # 2b. 元认知
+        confidence = result.get("confidence", 0)
+        domain = result.get("domain", "other")
+        conf_exp = result.get("confidence_explanation", "")
+        context_parts.append(f"[元认知] 领域={domain}, 置信度={confidence:.0%}{', ' + conf_exp if conf_exp else ''}")
+
+        # 2c. 记忆
         memory_used = result.get("memory_used", 0)
         if memory_used > 0:
             context_parts.append(f"[记忆系统] 检索到 {memory_used} 条相关记忆")
+
+        # 2d. 知识图谱
         if "knowledge_graph" in modules_used:
             try:
                 kg = ai.knowledge_graph.ask(req.message)
                 kg_ctx = kg.get("context", [])
                 if kg_ctx:
-                    context_parts.append(f"[知识图谱] 相关知识: {', '.join(str(k) for k in kg_ctx[:3])}")
+                    context_parts.append(f"[知识图谱] 相关知识: {', '.join(str(k) for k in kg_ctx[:5])}")
             except: pass
-        emotion = result.get("emotion", {})
-        if emotion and isinstance(emotion, dict):
-            emo_name = emotion.get("dominant_emotion", "")
-            if emo_name:
-                context_parts.append(f"[情感分析] 用户情绪: {emo_name}")
-        confidence = result.get("confidence", 0)
-        domain = result.get("domain", "other")
-        context_parts.append(f"[元认知] 领域={domain}, 置信度={confidence:.2f}")
+
+        # 2e. 因果推理
+        if "causal_reasoning" in modules_used:
+            try:
+                causal = ai.causal_reasoning.find_root_causes(req.message)
+                if causal and isinstance(causal, list) and len(causal) > 0:
+                    context_parts.append(f"[因果推理] {', '.join(str(c) for c in causal[:3])}")
+            except: pass
+
+        # 2f. 反思洞察
         insights = result.get("reflection_insights", [])
         if insights:
             context_parts.append(f"[反思] {insights[0]}")
-        if "prompt_engineering" in modules_used:
+
+        # 2g. 决策模式
+        if "decision_patterns" in modules_used:
             try:
-                opt = ai.prompt_engineering.generate_prompt(domain=domain, task=req.message)
-                if opt:
-                    context_parts.append(f"[提示优化] {opt[:200]}")
+                similar = ai.decision_patterns.find_similar_cases(req.message)
+                if similar and len(similar) > 0:
+                    context_parts.append(f"[决策模式] 找到{len(similar)}个相似案例")
             except: pass
+
+        # 2h. 需要规划
+        needs_plan = result.get("needs_planning", False)
+        if needs_plan:
+            context_parts.append("[目标规划] 用户需要步骤化建议")
+
         module_context = "\n".join(context_parts) if context_parts else ""
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"上下文收集失败: {str(e)}")
 
-    # Step 3: 调用 LLM
-    llm_answer = None
-    if req.provider != "local" and req.provider_config:
-        try:
-            import urllib.request as _urlreq
-            cfg = req.provider_config
-            base_url = cfg.get("base_url", "").rstrip("/")
-            api_key = cfg.get("api_key", "")
-            model = cfg.get("model", "deepseek-chat")
-
-            system_prompt = (
-                "你是SelfEvolvingAI，一个具备自我进化能力的AI助手，集成了70个智能模块。"
-                "你由杨元强（primaxlab）开发。请以SelfEvolvingAI的身份回复，不要说自己是DeepSeek或其他模型。\n\n"
-                f"系统内部模块分析结果:\n{module_context}\n\n"
-                "请基于以上模块分析结果，给出更准确、更有帮助的回答。保持简洁、友好。"
-            )
-
-            payload = json.dumps({
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": req.message}
-                ],
-                "max_tokens": 1024,
-                "temperature": 0.7,
-            }).encode()
-
-            llm_req = _urlreq.Request(
-                f"{base_url}/chat/completions",
-                data=payload,
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {api_key}",
-                },
-                method="POST",
-            )
-            llm_resp = _urlreq.urlopen(llm_req, timeout=30)
-            llm_data = json.loads(llm_resp.read())
-            llm_answer = llm_data["choices"][0]["message"]["content"]
-        except Exception as e:
-            print(f"LLM调用失败: {e}")
-            llm_answer = None
-
-    # Step 4: 最终回答
-    answer = result.get("answer", result.get("response", ""))
-    if llm_answer:
-        answer = llm_answer
-
-    return {
-        "answer": answer,
-        "confidence": confidence,
-        "domain": domain,
-        "modules_used": modules_used,
-        "module_context": module_context,
-        "provider": req.provider,
-        "model": req.provider_config.get("model", "") if req.provider_config else "",
-        "timestamp": time.time(),
-    }
-
-
-@app.post("/api/chat/stream")
-async def chat_stream(req: ChatRequest):
-    """流式聊天"""
-    if not req.message:
-        raise HTTPException(status_code=400, detail="message is required")
-
-    async def generate():
-        # 如果前端传了 provider_config，直接调用 LLM API
+        # Step 3: 调用 LLM（带模块上下文）
         llm_answer = None
         if req.provider != "local" and req.provider_config:
             try:
@@ -292,10 +250,29 @@ async def chat_stream(req: ChatRequest):
                 api_key = cfg.get("api_key", "")
                 model = cfg.get("model", "deepseek-chat")
 
+                # 根据情感调整系统提示
+                emotion_hint = ""
+                if emotion_label == "happy":
+                    emotion_hint = "用户心情不错，可以用轻松愉快的语气回答。"
+                elif emotion_label == "sad":
+                    emotion_hint = "用户情绪低落，请用温暖关怀的语气回答。"
+                elif emotion_label == "angry":
+                    emotion_hint = "用户有些不满，请耐心解释，语气平和。"
+                elif emotion_label == "anxious":
+                    emotion_hint = "用户感到焦虑，请给出清晰明确的回答，减轻不安。"
+
+                system_prompt = (
+                    "你是SelfEvolvingAI，一个具备自我进化能力的AI助手，集成了70个智能模块。"
+                    "你由杨元强（primaxlab）开发。请以SelfEvolvingAI的身份回复，不要说自己是DeepSeek或其他模型。\n\n"
+                    f"系统内部模块分析结果:\n{module_context}\n\n"
+                    f"{emotion_hint}\n"
+                    "请基于以上模块分析结果，给出更准确、更有帮助的回答。保持简洁、友好。"
+                )
+
                 payload = json.dumps({
                     "model": model,
                     "messages": [
-                        {"role": "system", "content": "你是SelfEvolvingAI，一个具备自我进化能力的AI助手，集成了70个智能模块。你由杨元强（primaxlab）开发。请以SelfEvolvingAI的身份回复，不要说自己是DeepSeek或其他模型。保持简洁、友好、有帮助。"},
+                        {"role": "system", "content": system_prompt},
                         {"role": "user", "content": req.message}
                     ],
                     "max_tokens": 1024,
@@ -314,20 +291,98 @@ async def chat_stream(req: ChatRequest):
                 llm_resp = _urlreq.urlopen(llm_req, timeout=30)
                 llm_data = json.loads(llm_resp.read())
                 llm_answer = llm_data["choices"][0]["message"]["content"]
-            except Exception:
+            except Exception as e:
+                print(f"LLM调用失败: {e}")
                 llm_answer = None
 
-        result = ai.process(req.message)
+        # Step 4: 最终回答
         answer = result.get("answer", result.get("response", ""))
         if llm_answer:
             answer = llm_answer
 
-        # 流式输出
+        return {
+            "answer": answer,
+            "confidence": confidence,
+            "domain": domain,
+            "emotion": emotion_label,
+            "modules_used": modules_used,
+            "module_context": module_context,
+            "needs_planning": needs_plan,
+            "provider": req.provider,
+            "model": req.provider_config.get("model", "") if req.provider_config else "",
+            "timestamp": time.time(),
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"处理失败: {str(e)}")
+
+
+@app.post("/api/chat/stream")
+async def chat_stream(req: ChatRequest):
+    """流式聊天 - 模块+LLM协作"""
+    if not req.message:
+        raise HTTPException(status_code=400, detail="message is required")
+
+    async def generate():
+        try:
+            result = ai.process(req.message)
+        except Exception:
+            result = {"answer": "处理出错", "confidence": 0, "domain": "other", "modules_used": [], "emotion": {}}
+
+        modules_used = result.get("modules_used", [])
+        confidence = result.get("confidence", 0)
+        domain = result.get("domain", "other")
+        emotion = result.get("emotion", {})
+        emotion_label = emotion.get("emotion", emotion.get("dominant_emotion", "neutral")) if isinstance(emotion, dict) else "neutral"
+
+        context_parts = []
+        if emotion_label != "neutral":
+            context_parts.append(f"[情感分析] 用户情绪: {emotion_label}")
+        context_parts.append(f"[元认知] 领域={domain}, 置信度={confidence:.0%}")
+        memory_used = result.get("memory_used", 0)
+        if memory_used > 0:
+            context_parts.append(f"[记忆系统] {memory_used} 条相关记忆")
+        insights = result.get("reflection_insights", [])
+        if insights:
+            context_parts.append(f"[反思] {insights[0][:50]}")
+        module_context = "\n".join(context_parts)
+
+        llm_answer = None
+        if req.provider != "local" and req.provider_config:
+            try:
+                import urllib.request as _urlreq
+                cfg = req.provider_config
+                base_url = cfg.get("base_url", "").rstrip("/")
+                api_key = cfg.get("api_key", "")
+                model = cfg.get("model", "deepseek-chat")
+                system_prompt = (
+                    "你是SelfEvolvingAI，集成了70个智能模块。"
+                    f"模块分析:\n{module_context}\n\n"
+                    "请基于以上分析回答。"
+                )
+                payload = json.dumps({
+                    "model": model,
+                    "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": req.message}],
+                    "max_tokens": 1024, "temperature": 0.7,
+                }).encode()
+                llm_req = _urlreq.Request(f"{base_url}/chat/completions", data=payload,
+                    headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}, method="POST")
+                llm_resp = _urlreq.urlopen(llm_req, timeout=30)
+                llm_data = json.loads(llm_resp.read())
+                llm_answer = llm_data["choices"][0]["message"]["content"]
+            except Exception:
+                llm_answer = None
+
+        answer = result.get("answer", result.get("response", ""))
+        if llm_answer:
+            answer = llm_answer
+
         for i in range(0, len(answer), 3):
             chunk = answer[i:i+3]
             yield f"data: {json.dumps({'chunk': chunk, 'done': False}, ensure_ascii=False)}\n\n"
             await asyncio.sleep(0.02)
-        yield f"data: {json.dumps({'chunk': '', 'done': True, 'confidence': result.get('confidence', 0), 'domain': result.get('domain', 'other'), 'provider': req.provider, 'model': req.provider_config.get('model', '') if req.provider_config else ''}, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps({'chunk': '', 'done': True, 'confidence': confidence, 'domain': domain, 'emotion': emotion_label, 'modules_used': modules_used, 'module_context': module_context, 'provider': req.provider, 'model': req.provider_config.get('model', '') if req.provider_config else ''}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 

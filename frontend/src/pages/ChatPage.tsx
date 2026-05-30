@@ -8,6 +8,9 @@ interface Message {
   confidence?: number;
   domain?: string;
   modules?: string[];
+  moduleContext?: string;
+  moduleTags?: string[];
+  emotion?: string;
   timestamp: number;
 }
 
@@ -207,6 +210,12 @@ export default function ChatPage() {
     } else {
       try {
         const result: ChatResponse = await chat(text, prov.provider, prov.config);
+        // 构建模块标签
+        const moduleTags: string[] = [];
+        if (result.emotion && result.emotion !== 'neutral') moduleTags.push(`情感: ${result.emotion}`);
+        if (result.domain) moduleTags.push(`领域: ${result.domain}`);
+        if (result.confidence > 0) moduleTags.push(`置信度: ${(result.confidence * 100).toFixed(0)}%`);
+        if (result.modules_used?.length > 0) moduleTags.push(`${result.modules_used.length}个模块`);
         updateMessages(convId, prev => [...prev, {
           id: (Date.now() + 1).toString(),
           role: 'ai',
@@ -214,6 +223,9 @@ export default function ChatPage() {
           confidence: result.confidence,
           domain: result.domain,
           modules: result.modules_used,
+          moduleContext: result.module_context,
+          moduleTags,
+          emotion: result.emotion,
           timestamp: result.timestamp,
         }]);
       } catch (e: any) {
@@ -362,10 +374,31 @@ export default function ChatPage() {
               }}>
                 <div style={{ whiteSpace: 'pre-wrap', fontSize: 14, lineHeight: 1.6 }}>{msg.content}</div>
                 {msg.role === 'ai' && msg.confidence !== undefined && (
-                  <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)', display: 'flex', gap: 12, fontSize: 11, color: 'var(--text-muted)' }}>
-                    <span>置信度: <span style={{ color: confidenceColor(msg.confidence) }}>{(msg.confidence * 100).toFixed(0)}%</span></span>
-                    {msg.domain && <span>领域: {msg.domain}</span>}
-                    {msg.modules && <span>模块: {msg.modules.length}个</span>}
+                  <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
+                    {/* 模块标签 */}
+                    {msg.moduleTags && msg.moduleTags.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+                        {msg.moduleTags.map((tag, i) => (
+                          <span key={i} style={{
+                            fontSize: 10, padding: '2px 8px', borderRadius: 10,
+                            background: 'var(--accent-glow)', color: 'var(--accent-light)',
+                            border: '1px solid var(--border)',
+                          }}>{tag}</span>
+                        ))}
+                      </div>
+                    )}
+                    {/* 模块上下文详情 */}
+                    {msg.moduleContext && (
+                      <div style={{ fontSize: 10, color: 'var(--text-muted)', background: 'var(--bg-secondary)', padding: '6px 10px', borderRadius: 8, marginBottom: 6, whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
+                        {msg.moduleContext}
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--text-muted)' }}>
+                      <span>置信度: <span style={{ color: confidenceColor(msg.confidence) }}>{(msg.confidence * 100).toFixed(0)}%</span></span>
+                      {msg.domain && <span>领域: {msg.domain}</span>}
+                      {msg.emotion && msg.emotion !== 'neutral' && <span>情绪: {msg.emotion}</span>}
+                      {msg.modules && <span>模块: {msg.modules.length}个</span>}
+                    </div>
                   </div>
                 )}
               </div>

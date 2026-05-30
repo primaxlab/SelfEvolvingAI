@@ -24,7 +24,11 @@ export interface ChatResponse {
   answer: string;
   confidence: number;
   domain: string;
+  emotion?: string;
   modules_used: string[];
+  module_context?: string;
+  provider: string;
+  model: string;
   timestamp: number;
 }
 
