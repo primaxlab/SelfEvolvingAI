@@ -30,10 +30,13 @@ from pydantic import BaseModel
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from core.evolution_loop import SelfEvolvingAI
+from core.token_optimizer import get_token_optimizer
 
 # ==================== 全局状态 ====================
 ai: Optional[SelfEvolvingAI] = None
 start_time = time.time()
+
+token_optimizer = get_token_optimizer()
 
 
 @asynccontextmanager
@@ -434,9 +437,30 @@ def execute_tool(tool_name: str, args: dict, ai_instance) -> str:
 
 @app.post("/api/chat")
 async def chat(req: ChatRequest):
-    """聊天 - 模块+LLM协作模式"""
+    """聊天 - 模块+LLM协作模式 + Token优化"""
     if not req.message:
         raise HTTPException(status_code=400, detail="message is required")
+
+    # Step 0: 检查缓存
+    cached_answer = token_optimizer.get_cache(req.message)
+    if cached_answer:
+        # 缓存命中，直接返回
+        token_optimizer.record_usage(1000, 0)  # 记录节省
+        return {
+            "answer": cached_answer,
+            "confidence": 0.95,
+            "domain": "cached",
+            "emotion": "neutral",
+            "modules_used": ["cache"],
+            "module_context": "[缓存命中] 直接返回缓存结果",
+            "needs_planning": False,
+            "tools_used": [],
+            "provider": req.provider,
+            "model": "cache",
+            "timestamp": time.time(),
+            "token_optimized": True,
+            "tokens_saved": 1000,
+        }
 
     try:
         # Step 1: 70个模块先处理
@@ -1032,6 +1056,23 @@ async def chat(req: ChatRequest):
             "model": req.provider_config.get("model", "") if req.provider_config else "",
             "timestamp": time.time(),
         }
+
+        # Step 5: 保存到缓存（如果回答质量好）
+        if confidence > 0.6:
+            token_optimizer.save_cache(
+                req.message,
+                answer,
+                model=req.provider_config.get("model", "") if req.provider_config else "local",
+                tokens_used=token_optimizer._estimate_tokens(answer)
+            )
+
+        # 记录 token 使用
+        original_tokens = token_optimizer._estimate_tokens(req.message) + token_optimizer._estimate_tokens(module_context) + 2000  # prompt + tools
+        optimized_tokens = token_optimizer._estimate_tokens(answer)
+        token_optimizer.record_usage(original_tokens, optimized_tokens)
+
+        return result
+
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -1222,6 +1263,41 @@ async def websocket_endpoint(ws: WebSocket):
 
     except WebSocketDisconnect:
         manager.disconnect(ws)
+
+
+# ==================== Token 优化 API ====================
+
+@app.get("/api/token/stats")
+async def get_token_stats():
+    """获取 Token 优化统计"""
+    return token_optimizer.get_stats()
+
+
+@app.get("/api/token/report")
+async def get_token_report():
+    """获取 Token 优化报告"""
+    return {"report": token_optimizer.get_report()}
+
+
+@app.post("/api/token/learn")
+async def learn_from_feedback(question: str, answer: str, feedback: str = "positive"):
+    """从用户反馈中学习"""
+    token_optimizer.learn_from_interaction(question, answer, feedback)
+    return {"success": True}
+
+
+@app.get("/api/token/cache/size")
+async def get_cache_size():
+    """获取缓存大小"""
+    return {"size": len(token_optimizer.cache)}
+
+
+@app.delete("/api/token/cache")
+async def clear_cache():
+    """清空缓存"""
+    token_optimizer.cache.clear()
+    token_optimizer._save_cache()
+    return {"success": True}
 
 
 # ==================== 静态文件服务 ====================
