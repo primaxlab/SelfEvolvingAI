@@ -909,9 +909,19 @@ async def chat(req: ChatRequest):
                     "你由杨元强（primaxlab）开发。请以SelfEvolvingAI的身份回复，不要说自己是DeepSeek或其他模型。\n\n"
                     f"系统内部模块分析结果:\n{module_context}\n\n"
                     f"{emotion_hint}\n"
-                    "【重要】当用户请求需要工具操作时（如执行命令、读写文件、搜索网页等），"
-                    "你必须调用相应的工具来完成，而不是直接告诉用户怎么做。"
-                    "例如：用户说'帮我执行dir命令'，你应该调用execute_command工具，而不是解释dir命令。"
+                    "【工具使用规则】\n"
+                    "当用户请求涉及以下操作时，你必须调用相应工具：\n"
+                    "1. 执行命令（dir, ls, python等） → 调用 execute_command\n"
+                    "2. 读取文件 → 调用 read_file\n"
+                    "3. 写入/创建文件 → 调用 write_file\n"
+                    "4. 搜索网页 → 调用 search_web\n"
+                    "5. 打开网页 → 调用 open_url\n"
+                    "6. 截屏 → 调用 screenshot\n"
+                    "7. 点击屏幕 → 调用 click\n"
+                    "8. 输入文字 → 调用 type_text\n"
+                    "9. 查看系统信息 → 调用 get_system_info\n"
+                    "10. 创建定时任务 → 调用 schedule_task\n\n"
+                    "【重要】不要只告诉用户怎么做，要直接调用工具执行！"
                 )
 
                 # 工具定义格式（OpenAI function calling 格式）
