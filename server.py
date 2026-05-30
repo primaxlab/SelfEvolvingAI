@@ -169,27 +169,45 @@ async def chat(req: ChatRequest):
     if not req.message:
         raise HTTPException(status_code=400, detail="message is required")
 
-    # 如果前端传了 provider_config，临时配置 LLM
-    llm_response = None
+    # 如果前端传了 provider_config，直接调用 LLM API
+    llm_answer = None
     if req.provider != "local" and req.provider_config:
         try:
-            llm_response = ai.llm.chat(
-                req.message,
-                provider=req.provider,
-                base_url=req.provider_config.get("base_url"),
-                api_key=req.provider_config.get("api_key"),
-                model=req.provider_config.get("model"),
+            import urllib.request as _urlreq
+            cfg = req.provider_config
+            base_url = cfg.get("base_url", "").rstrip("/")
+            api_key = cfg.get("api_key", "")
+            model = cfg.get("model", "deepseek-chat")
+
+            payload = json.dumps({
+                "model": model,
+                "messages": [{"role": "user", "content": req.message}],
+                "max_tokens": 1024,
+                "temperature": 0.7,
+            }).encode()
+
+            llm_req = _urlreq.Request(
+                f"{base_url}/chat/completions",
+                data=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {api_key}",
+                },
+                method="POST",
             )
+            llm_resp = _urlreq.urlopen(llm_req, timeout=30)
+            llm_data = json.loads(llm_resp.read())
+            llm_answer = llm_data["choices"][0]["message"]["content"]
         except Exception as e:
-            llm_response = None
+            llm_answer = None
 
     # 同时执行本地处理（模块参与）
     result = ai.process(req.message)
 
     # 如果 LLM 有回复，优先使用 LLM 的回复
     answer = result.get("answer", result.get("response", ""))
-    if llm_response and llm_response.get("response"):
-        answer = llm_response["response"]
+    if llm_answer:
+        answer = llm_answer
 
     return {
         "answer": answer,
@@ -209,24 +227,42 @@ async def chat_stream(req: ChatRequest):
         raise HTTPException(status_code=400, detail="message is required")
 
     async def generate():
-        # 如果前端传了 provider_config，调用 LLM
-        llm_response = None
+        # 如果前端传了 provider_config，直接调用 LLM API
+        llm_answer = None
         if req.provider != "local" and req.provider_config:
             try:
-                llm_response = ai.llm.chat(
-                    req.message,
-                    provider=req.provider,
-                    base_url=req.provider_config.get("base_url"),
-                    api_key=req.provider_config.get("api_key"),
-                    model=req.provider_config.get("model"),
+                import urllib.request as _urlreq
+                cfg = req.provider_config
+                base_url = cfg.get("base_url", "").rstrip("/")
+                api_key = cfg.get("api_key", "")
+                model = cfg.get("model", "deepseek-chat")
+
+                payload = json.dumps({
+                    "model": model,
+                    "messages": [{"role": "user", "content": req.message}],
+                    "max_tokens": 1024,
+                    "temperature": 0.7,
+                }).encode()
+
+                llm_req = _urlreq.Request(
+                    f"{base_url}/chat/completions",
+                    data=payload,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {api_key}",
+                    },
+                    method="POST",
                 )
+                llm_resp = _urlreq.urlopen(llm_req, timeout=30)
+                llm_data = json.loads(llm_resp.read())
+                llm_answer = llm_data["choices"][0]["message"]["content"]
             except Exception:
-                llm_response = None
+                llm_answer = None
 
         result = ai.process(req.message)
         answer = result.get("answer", result.get("response", ""))
-        if llm_response and llm_response.get("response"):
-            answer = llm_response["response"]
+        if llm_answer:
+            answer = llm_answer
 
         # 流式输出
         for i in range(0, len(answer), 3):
