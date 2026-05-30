@@ -240,8 +240,9 @@ async def chat(req: ChatRequest):
 
         module_context = "\n".join(context_parts) if context_parts else ""
 
-        # Step 3: 调用 LLM（带模块上下文）
+        # Step 3: 调用 LLM（带模块上下文 + 工具）
         llm_answer = None
+        tools_used = []
         if req.provider != "local" and req.provider_config:
             try:
                 import urllib.request as _urlreq
@@ -261,12 +262,96 @@ async def chat(req: ChatRequest):
                 elif emotion_label == "anxious":
                     emotion_hint = "用户感到焦虑，请给出清晰明确的回答，减轻不安。"
 
+                # 工具定义（传给 DeepSeek function calling）
+                tool_definitions = [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "execute_command",
+                            "description": "执行系统命令（如: dir, python script.py, git status）",
+                            "parameters": {"type": "object", "properties": {
+                                "command": {"type": "string", "description": "要执行的命令"}
+                            }, "required": ["command"]}
+                        }
+                    },
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "read_file",
+                            "description": "读取文件内容",
+                            "parameters": {"type": "object", "properties": {
+                                "path": {"type": "string", "description": "文件路径"}
+                            }, "required": ["path"]}
+                        }
+                    },
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "write_file",
+                            "description": "写入文件内容",
+                            "parameters": {"type": "object", "properties": {
+                                "path": {"type": "string", "description": "文件路径"},
+                                "content": {"type": "string", "description": "文件内容"}
+                            }, "required": ["path", "content"]}
+                        }
+                    },
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "search_web",
+                            "description": "搜索网页获取信息",
+                            "parameters": {"type": "object", "properties": {
+                                "query": {"type": "string", "description": "搜索关键词"}
+                            }, "required": ["query"]}
+                        }
+                    },
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "open_url",
+                            "description": "打开网页并获取内容",
+                            "parameters": {"type": "object", "properties": {
+                                "url": {"type": "string", "description": "网址"}
+                            }, "required": ["url"]}
+                        }
+                    },
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "screenshot",
+                            "description": "截取屏幕截图",
+                            "parameters": {"type": "object", "properties": {}}
+                        }
+                    },
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "click",
+                            "description": "点击屏幕指定位置",
+                            "parameters": {"type": "object", "properties": {
+                                "x": {"type": "integer", "description": "X坐标"},
+                                "y": {"type": "integer", "description": "Y坐标"}
+                            }, "required": ["x", "y"]}
+                        }
+                    },
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "type_text",
+                            "description": "在当前位置输入文字",
+                            "parameters": {"type": "object", "properties": {
+                                "text": {"type": "string", "description": "要输入的文字"}
+                            }, "required": ["text"]}
+                        }
+                    },
+                ]
+
                 system_prompt = (
-                    "你是SelfEvolvingAI，一个具备自我进化能力的AI助手，集成了70个智能模块。"
+                    "你是SelfEvolvingAI，一个具备自我进化能力的AI助手，集成了70个智能模块和多种工具。"
                     "你由杨元强（primaxlab）开发。请以SelfEvolvingAI的身份回复，不要说自己是DeepSeek或其他模型。\n\n"
                     f"系统内部模块分析结果:\n{module_context}\n\n"
                     f"{emotion_hint}\n"
-                    "请基于以上模块分析结果，给出更准确、更有帮助的回答。保持简洁、友好。"
+                    "你可以使用工具来操作计算机、读写文件、搜索网页等。当用户请求需要工具操作时，调用相应工具。"
                 )
 
                 payload = json.dumps({
@@ -275,6 +360,7 @@ async def chat(req: ChatRequest):
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": req.message}
                     ],
+                    "tools": tool_definitions,
                     "max_tokens": 1024,
                     "temperature": 0.7,
                 }).encode()
@@ -290,7 +376,57 @@ async def chat(req: ChatRequest):
                 )
                 llm_resp = _urlreq.urlopen(llm_req, timeout=30)
                 llm_data = json.loads(llm_resp.read())
-                llm_answer = llm_data["choices"][0]["message"]["content"]
+                message = llm_data["choices"][0]["message"]
+
+                # 检查是否有工具调用
+                if message.get("tool_calls"):
+                    for tool_call in message["tool_calls"]:
+                        func = tool_call["function"]
+                        tool_name = func["name"]
+                        try:
+                            tool_args = json.loads(func["arguments"])
+                        except:
+                            tool_args = {}
+
+                        # 执行工具
+                        tool_result = ai._check_and_execute_tool(tool_name, tool_args)
+                        tools_used.append({
+                            "tool": tool_name,
+                            "args": tool_args,
+                            "result": tool_result[:500],
+                        })
+
+                    # 把工具结果反馈给 LLM 获取最终回答
+                    tool_results_msg = "工具执行结果:\n"
+                    for tu in tools_used:
+                        tool_results_msg += f"- {tu['tool']}: {tu['result']}\n"
+
+                    payload2 = json.dumps({
+                        "model": model,
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": req.message},
+                            {"role": "assistant", "content": None, "tool_calls": message["tool_calls"]},
+                            {"role": "tool", "tool_call_id": message["tool_calls"][0]["id"], "content": tool_results_msg},
+                        ],
+                        "max_tokens": 1024,
+                        "temperature": 0.7,
+                    }).encode()
+                    llm_req2 = _urlreq.Request(
+                        f"{base_url}/chat/completions",
+                        data=payload2,
+                        headers={
+                            "Content-Type": "application/json",
+                            "Authorization": f"Bearer {api_key}",
+                        },
+                        method="POST",
+                    )
+                    llm_resp2 = _urlreq.urlopen(llm_req2, timeout=30)
+                    llm_data2 = json.loads(llm_resp2.read())
+                    llm_answer = llm_data2["choices"][0]["message"]["content"]
+                else:
+                    llm_answer = message["content"]
+
             except Exception as e:
                 print(f"LLM调用失败: {e}")
                 llm_answer = None
@@ -308,6 +444,7 @@ async def chat(req: ChatRequest):
             "modules_used": modules_used,
             "module_context": module_context,
             "needs_planning": needs_plan,
+            "tools_used": tools_used,
             "provider": req.provider,
             "model": req.provider_config.get("model", "") if req.provider_config else "",
             "timestamp": time.time(),
