@@ -1,54 +1,29 @@
 # 🧬 SelfEvolvingAI - 自我进化AI系统
 
-**集成70个模块的完整自我进化AI系统框架 + Web UI**
+> ⚠️ **项目正在积极开发中** - 本项目目前处于开发阶段，功能和API可能会有较大变化。
 
-## 🖥️ Web UI
+集成70个模块的完整自我进化AI系统框架。
 
-![React](https://img.shields.io/badge/React-19-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.136-green) ![Python](https://img.shields.io/badge/Python-3.14-yellow)
+## 🎯 项目目标
 
-### 快速启动
+构建一个具备自我进化能力的AI系统，通过70个智能模块的协作，实现：
 
-```bash
-# 1. 启动后端
-python server.py --port 8000
+- **自主学习** - 从交互中学习，不断改进
+- **自我优化** - 自动发现和修复问题
+- **知识积累** - 构建和维护知识图谱
+- **情感理解** - 识别和响应用户情绪
+- **工具使用** - 操作计算机、执行任务
 
-# 2. 启动前端（新终端）
-cd frontend
-npm install --registry https://registry.npmmirror.com
-npm run dev
+## 🚧 开发状态
 
-# 3. 打开浏览器
-# http://localhost:5173
-```
-
-### 功能页面
-
-- 📊 **仪表盘** - 系统状态、模块数量、进化代数、交互次数
-- 💬 **对话** - 与AI实时聊天，支持流式输出
-- 📦 **模块管理** - 查看70个模块状态，分类浏览
-- 🧬 **进化中心** - 触发进化循环，查看进化历史
-- 📚 **学习中心** - 输入知识让AI学习
-- 📋 **进化报告** - 查看完整系统报告
-
-### API 端点
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/status` | 系统状态 |
-| GET | `/api/modules` | 所有模块状态 |
-| GET | `/api/modules/{id}` | 单个模块 |
-| GET | `/api/memory` | 记忆系统 |
-| GET | `/api/knowledge` | 知识图谱 |
-| GET | `/api/report` | 进化报告 |
-| GET | `/api/health` | 健康检查 |
-| POST | `/api/chat` | 聊天 |
-| POST | `/api/chat/stream` | 流式聊天 |
-| POST | `/api/learn` | 学习知识 |
-| POST | `/api/evolve` | 触发进化 |
-| POST | `/api/goal` | 设定目标 |
-| WS | `/ws` | WebSocket实时通信 |
-
----
+- ✅ 核心框架完成
+- ✅ 70个模块实现
+- ✅ 基础对话功能
+- ✅ 工具调用系统
+- 🔄 Web UI 开发中
+- 🔄 模块协作优化中
+- 📋 计划：更多工具集成
+- 📋 计划：多模态支持
 
 ## 📦 70个模块完整清单
 
@@ -191,6 +166,11 @@ print(f"进化代数: {ai.state.generation}")
 3. **安全第一** — 所有修改必须可回滚
 4. **渐进式** — 小步改进，不搞大重构
 5. **可量化** — 所有评估都有数值支撑
+
+## 📬 联系方式
+
+- **GitHub**: [primaxlab](https://github.com/primaxlab)
+- **项目**: [SelfEvolvingAI](https://github.com/primaxlab/SelfEvolvingAI)
 
 ## 许可证
 
