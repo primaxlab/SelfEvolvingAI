@@ -6,6 +6,7 @@ import ModulesPage from './pages/ModulesPage';
 import EvolvePage from './pages/EvolvePage';
 import LearnPage from './pages/LearnPage';
 import ReportPage from './pages/ReportPage';
+import SettingsPage from './pages/SettingsPage';
 import { getStatus, type SystemStatus } from './api';
 import './index.css';
 
@@ -28,6 +29,7 @@ function Sidebar() {
     { path: '/evolve', icon: '🧬', label: '进化' },
     { path: '/learn', icon: '📚', label: '学习' },
     { path: '/report', icon: '📋', label: '报告' },
+    { path: '/settings', icon: '⚙️', label: '设置' },
   ];
 
   return (
@@ -84,6 +86,7 @@ function App() {
             <Route path="/evolve" element={<EvolvePage />} />
             <Route path="/learn" element={<LearnPage />} />
             <Route path="/report" element={<ReportPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
           </Routes>
         </main>
       </div>
