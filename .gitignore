@@ -1,38 +1,11 @@
-# Python
+.snapshots/
+frontend/tmp/
+tmp/
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
-*.egg-info/
-dist/
-build/
-*.egg
-
-# Virtual Environment
-venv/
-.venv/
-env/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Evolution data (runtime generated)
-.evolution/
-
-# Environment variables
-.env
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Test cache
+*.pyc
 .pytest_cache/
-.coverage
-htmlcov/
-
-# Logs
-*.log
+.evolution/
+.env
+node_modules/
+dist/
+frontend/node_modules/
