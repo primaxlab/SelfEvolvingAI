@@ -165,11 +165,57 @@ async def get_providers():
 
 @app.post("/api/chat")
 async def chat(req: ChatRequest):
-    """聊天"""
+    """聊天 - 模块+LLM协作模式"""
     if not req.message:
         raise HTTPException(status_code=400, detail="message is required")
 
-    # 如果前端传了 provider_config，直接调用 LLM API
+    try:
+        # Step 1: 70个模块先处理
+        result = ai.process(req.message)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"模块处理失败: {str(e)}")
+
+    try:
+        modules_used = result.get("modules_used", [])
+
+        # Step 2: 收集模块上下文
+        context_parts = []
+        memory_used = result.get("memory_used", 0)
+        if memory_used > 0:
+            context_parts.append(f"[记忆系统] 检索到 {memory_used} 条相关记忆")
+        if "knowledge_graph" in modules_used:
+            try:
+                kg = ai.knowledge_graph.ask(req.message)
+                kg_ctx = kg.get("context", [])
+                if kg_ctx:
+                    context_parts.append(f"[知识图谱] 相关知识: {', '.join(str(k) for k in kg_ctx[:3])}")
+            except: pass
+        emotion = result.get("emotion", {})
+        if emotion and isinstance(emotion, dict):
+            emo_name = emotion.get("dominant_emotion", "")
+            if emo_name:
+                context_parts.append(f"[情感分析] 用户情绪: {emo_name}")
+        confidence = result.get("confidence", 0)
+        domain = result.get("domain", "other")
+        context_parts.append(f"[元认知] 领域={domain}, 置信度={confidence:.2f}")
+        insights = result.get("reflection_insights", [])
+        if insights:
+            context_parts.append(f"[反思] {insights[0]}")
+        if "prompt_engineering" in modules_used:
+            try:
+                opt = ai.prompt_engineering.generate_prompt(domain=domain, task=req.message)
+                if opt:
+                    context_parts.append(f"[提示优化] {opt[:200]}")
+            except: pass
+        module_context = "\n".join(context_parts) if context_parts else ""
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"上下文收集失败: {str(e)}")
+
+    # Step 3: 调用 LLM
     llm_answer = None
     if req.provider != "local" and req.provider_config:
         try:
@@ -179,9 +225,19 @@ async def chat(req: ChatRequest):
             api_key = cfg.get("api_key", "")
             model = cfg.get("model", "deepseek-chat")
 
+            system_prompt = (
+                "你是SelfEvolvingAI，一个具备自我进化能力的AI助手，集成了70个智能模块。"
+                "你由杨元强（primaxlab）开发。请以SelfEvolvingAI的身份回复，不要说自己是DeepSeek或其他模型。\n\n"
+                f"系统内部模块分析结果:\n{module_context}\n\n"
+                "请基于以上模块分析结果，给出更准确、更有帮助的回答。保持简洁、友好。"
+            )
+
             payload = json.dumps({
                 "model": model,
-                "messages": [{"role": "user", "content": req.message}],
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": req.message}
+                ],
                 "max_tokens": 1024,
                 "temperature": 0.7,
             }).encode()
@@ -199,21 +255,20 @@ async def chat(req: ChatRequest):
             llm_data = json.loads(llm_resp.read())
             llm_answer = llm_data["choices"][0]["message"]["content"]
         except Exception as e:
+            print(f"LLM调用失败: {e}")
             llm_answer = None
 
-    # 同时执行本地处理（模块参与）
-    result = ai.process(req.message)
-
-    # 如果 LLM 有回复，优先使用 LLM 的回复
+    # Step 4: 最终回答
     answer = result.get("answer", result.get("response", ""))
     if llm_answer:
         answer = llm_answer
 
     return {
         "answer": answer,
-        "confidence": result.get("confidence", 0),
-        "domain": result.get("domain", "other"),
-        "modules_used": result.get("modules_used", []),
+        "confidence": confidence,
+        "domain": domain,
+        "modules_used": modules_used,
+        "module_context": module_context,
         "provider": req.provider,
         "model": req.provider_config.get("model", "") if req.provider_config else "",
         "timestamp": time.time(),
@@ -239,7 +294,10 @@ async def chat_stream(req: ChatRequest):
 
                 payload = json.dumps({
                     "model": model,
-                    "messages": [{"role": "user", "content": req.message}],
+                    "messages": [
+                        {"role": "system", "content": "你是SelfEvolvingAI，一个具备自我进化能力的AI助手，集成了70个智能模块。你由杨元强（primaxlab）开发。请以SelfEvolvingAI的身份回复，不要说自己是DeepSeek或其他模型。保持简洁、友好、有帮助。"},
+                        {"role": "user", "content": req.message}
+                    ],
                     "max_tokens": 1024,
                     "temperature": 0.7,
                 }).encode()
