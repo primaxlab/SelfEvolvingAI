@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getStatus, type SystemStatus } from '../api';
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -123,16 +125,16 @@ export default function Dashboard() {
           <div className="card-title">⚡ 快捷操作</div>
         </div>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          <button className="btn btn-primary" onClick={() => window.location.hash = '#/chat'}>
+          <button className="btn btn-primary" onClick={() => navigate('/chat')}>
             💬 开始对话
           </button>
-          <button className="btn btn-secondary" onClick={() => window.location.hash = '#/evolve'}>
+          <button className="btn btn-secondary" onClick={() => navigate('/evolve')}>
             🧬 触发进化
           </button>
-          <button className="btn btn-secondary" onClick={() => window.location.hash = '#/modules'}>
+          <button className="btn btn-secondary" onClick={() => navigate('/modules')}>
             📦 查看模块
           </button>
-          <button className="btn btn-secondary" onClick={() => window.location.hash = '#/learn'}>
+          <button className="btn btn-secondary" onClick={() => navigate('/learn')}>
             📚 学习知识
           </button>
         </div>
