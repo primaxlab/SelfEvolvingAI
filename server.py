@@ -909,8 +909,22 @@ async def chat(req: ChatRequest):
                     "你由杨元强（primaxlab）开发。请以SelfEvolvingAI的身份回复，不要说自己是DeepSeek或其他模型。\n\n"
                     f"系统内部模块分析结果:\n{module_context}\n\n"
                     f"{emotion_hint}\n"
-                    "你可以使用工具来操作计算机、读写文件、搜索网页等。当用户请求需要工具操作时，调用相应工具。"
+                    "【重要】当用户请求需要工具操作时（如执行命令、读写文件、搜索网页等），"
+                    "你必须调用相应的工具来完成，而不是直接告诉用户怎么做。"
+                    "例如：用户说'帮我执行dir命令'，你应该调用execute_command工具，而不是解释dir命令。"
                 )
+
+                # 工具定义格式（OpenAI function calling 格式）
+                formatted_tools = []
+                for t in tool_definitions:
+                    formatted_tools.append({
+                        "type": "function",
+                        "function": {
+                            "name": t["function"]["name"],
+                            "description": t["function"]["description"],
+                            "parameters": t["function"]["parameters"]
+                        }
+                    })
 
                 payload = json.dumps({
                     "model": model,
@@ -918,7 +932,8 @@ async def chat(req: ChatRequest):
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": req.message}
                     ],
-                    "tools": tool_definitions,
+                    "tools": formatted_tools,
+                    "tool_choice": "auto",  # 让模型自动决定是否调用工具
                     "max_tokens": 1024,
                     "temperature": 0.7,
                 }).encode()
