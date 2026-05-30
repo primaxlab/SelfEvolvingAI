@@ -29,7 +29,7 @@ function Sidebar() {
     { path: '/evolve', icon: '🧬', label: '进化' },
     { path: '/learn', icon: '📚', label: '学习' },
     { path: '/report', icon: '📋', label: '报告' },
-    { path: '/settings', icon: '⚙️', label: '设置' },
+    { path: '/settings', icon: '🤖', label: '模型' },
   ];
 
   return (

@@ -69,6 +69,7 @@ app.add_middleware(
 class ChatRequest(BaseModel):
     message: str
     provider: str = "local"
+    provider_config: Optional[dict] = None
     stream: bool = False
 
 
@@ -168,12 +169,35 @@ async def chat(req: ChatRequest):
     if not req.message:
         raise HTTPException(status_code=400, detail="message is required")
 
+    # 如果前端传了 provider_config，临时配置 LLM
+    llm_response = None
+    if req.provider != "local" and req.provider_config:
+        try:
+            llm_response = ai.llm.chat(
+                req.message,
+                provider=req.provider,
+                base_url=req.provider_config.get("base_url"),
+                api_key=req.provider_config.get("api_key"),
+                model=req.provider_config.get("model"),
+            )
+        except Exception as e:
+            llm_response = None
+
+    # 同时执行本地处理（模块参与）
     result = ai.process(req.message)
+
+    # 如果 LLM 有回复，优先使用 LLM 的回复
+    answer = result.get("answer", result.get("response", ""))
+    if llm_response and llm_response.get("response"):
+        answer = llm_response["response"]
+
     return {
-        "answer": result.get("answer", result.get("response", "")),
+        "answer": answer,
         "confidence": result.get("confidence", 0),
         "domain": result.get("domain", "other"),
         "modules_used": result.get("modules_used", []),
+        "provider": req.provider,
+        "model": req.provider_config.get("model", "") if req.provider_config else "",
         "timestamp": time.time(),
     }
 
@@ -185,14 +209,31 @@ async def chat_stream(req: ChatRequest):
         raise HTTPException(status_code=400, detail="message is required")
 
     async def generate():
+        # 如果前端传了 provider_config，调用 LLM
+        llm_response = None
+        if req.provider != "local" and req.provider_config:
+            try:
+                llm_response = ai.llm.chat(
+                    req.message,
+                    provider=req.provider,
+                    base_url=req.provider_config.get("base_url"),
+                    api_key=req.provider_config.get("api_key"),
+                    model=req.provider_config.get("model"),
+                )
+            except Exception:
+                llm_response = None
+
         result = ai.process(req.message)
         answer = result.get("answer", result.get("response", ""))
-        # 模拟流式输出
+        if llm_response and llm_response.get("response"):
+            answer = llm_response["response"]
+
+        # 流式输出
         for i in range(0, len(answer), 3):
             chunk = answer[i:i+3]
             yield f"data: {json.dumps({'chunk': chunk, 'done': False}, ensure_ascii=False)}\n\n"
             await asyncio.sleep(0.02)
-        yield f"data: {json.dumps({'chunk': '', 'done': True, 'confidence': result.get('confidence', 0), 'domain': result.get('domain', 'other')}, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps({'chunk': '', 'done': True, 'confidence': result.get('confidence', 0), 'domain': result.get('domain', 'other'), 'provider': req.provider, 'model': req.provider_config.get('model', '') if req.provider_config else ''}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 

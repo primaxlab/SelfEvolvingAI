@@ -82,8 +82,8 @@ export async function getProviders(): Promise<any> {
   return data;
 }
 
-export async function chat(message: string, provider: string = 'local'): Promise<ChatResponse> {
-  const { data } = await api.post('/api/chat', { message, provider });
+export async function chat(message: string, provider: string = 'local', providerConfig?: Record<string, any>): Promise<ChatResponse> {
+  const { data } = await api.post('/api/chat', { message, provider, provider_config: providerConfig });
   return data;
 }
 
@@ -91,13 +91,15 @@ export async function chatStream(
   message: string,
   onChunk: (chunk: string) => void,
   onDone: (result: any) => void,
-  onError?: (error: Error) => void
+  onError?: (error: Error) => void,
+  provider: string = 'local',
+  providerConfig?: Record<string, any>,
 ): Promise<void> {
   try {
     const response = await fetch(`${API_BASE}/api/chat/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, stream: true }),
+      body: JSON.stringify({ message, stream: true, provider, provider_config: providerConfig }),
     });
 
     const reader = response.body?.getReader();

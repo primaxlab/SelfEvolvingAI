@@ -11,20 +11,67 @@ interface Message {
   timestamp: number;
 }
 
+// 从 localStorage 读取模型配置
+function getActiveProvider(): { provider: string; config?: Record<string, any> } {
+  try {
+    const saved = localStorage.getItem('selfevolving_providers');
+    if (saved) {
+      const providers = JSON.parse(saved);
+      // 找到第一个启用的 provider
+      for (const [id, cfg] of Object.entries(providers)) {
+        const p = cfg as any;
+        if (p.enabled && p.apiKey) {
+          return {
+            provider: id,
+            config: {
+              base_url: p.baseUrl,
+              api_key: p.apiKey,
+              model: p.model,
+            },
+          };
+        }
+      }
+      // 如果有启用的但没 apiKey（比如 ollama）
+      for (const [id, cfg] of Object.entries(providers)) {
+        const p = cfg as any;
+        if (p.enabled) {
+          return {
+            provider: id,
+            config: {
+              base_url: p.baseUrl,
+              model: p.model,
+            },
+          };
+        }
+      }
+    }
+  } catch {}
+  return { provider: 'local' };
+}
+
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [streamMode, setStreamMode] = useState(true);
+  const [activeProvider, setActiveProvider] = useState(getActiveProvider());
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // 每次打开聊天页面重新读取配置
+  useEffect(() => {
+    setActiveProvider(getActiveProvider());
+  }, []);
+
   const sendMessage = async () => {
     const text = input.trim();
     if (!text || loading) return;
+
+    // 每次发送时重新读取最新配置
+    const provider = getActiveProvider();
 
     const userMsg: Message = {
       id: Date.now().toString(),
@@ -37,7 +84,6 @@ export default function ChatPage() {
     setLoading(true);
 
     if (streamMode) {
-      // 流式模式
       const aiMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: 'ai',
@@ -68,12 +114,13 @@ export default function ChatPage() {
             m.id === aiMsg.id ? { ...m, content: `❌ 错误: ${error.message}` } : m
           ));
           setLoading(false);
-        }
+        },
+        provider.provider,
+        provider.config,
       );
     } else {
-      // 普通模式
       try {
-        const result: ChatResponse = await chat(text);
+        const result: ChatResponse = await chat(text, provider.provider, provider.config);
         const aiMsg: Message = {
           id: (Date.now() + 1).toString(),
           role: 'ai',
@@ -111,18 +158,41 @@ export default function ChatPage() {
     return 'var(--error)';
   };
 
+  const providerNames: Record<string, string> = {
+    local: '本地模式',
+    openai: 'OpenAI',
+    deepseek: 'DeepSeek',
+    claude: 'Claude',
+    ollama: 'Ollama',
+    custom: '自定义',
+  };
+
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 48px)' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <h2 style={{ fontSize: 24, fontWeight: 700 }}>💬 对话</h2>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-secondary)' }}>
-          <input
-            type="checkbox"
-            checked={streamMode}
-            onChange={e => setStreamMode(e.target.checked)}
-          />
-          流式输出
-        </label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          {/* 当前模型显示 */}
+          <span style={{
+            fontSize: 12,
+            color: activeProvider.provider === 'local' ? 'var(--text-muted)' : 'var(--accent-light)',
+            padding: '4px 10px',
+            background: 'var(--bg-card)',
+            borderRadius: '12px',
+            border: '1px solid var(--border)',
+          }}>
+            🤖 {providerNames[activeProvider.provider] || activeProvider.provider}
+            {activeProvider.config?.model ? ` · ${activeProvider.config.model}` : ''}
+          </span>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-secondary)' }}>
+            <input
+              type="checkbox"
+              checked={streamMode}
+              onChange={e => setStreamMode(e.target.checked)}
+            />
+            流式输出
+          </label>
+        </div>
       </div>
 
       {/* 消息列表 */}
@@ -145,7 +215,17 @@ export default function ChatPage() {
           }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>🧬</div>
             <div style={{ fontSize: 18 }}>开始和自我进化AI对话</div>
-            <div style={{ fontSize: 13, marginTop: 8 }}>输入任何问题，AI会思考并回答</div>
+            <div style={{ fontSize: 13, marginTop: 8 }}>
+              当前模型: <span style={{ color: 'var(--accent-light)' }}>
+                {providerNames[activeProvider.provider] || activeProvider.provider}
+                {activeProvider.config?.model ? ` (${activeProvider.config.model})` : ''}
+              </span>
+            </div>
+            {activeProvider.provider === 'local' && (
+              <div style={{ fontSize: 12, marginTop: 4, color: 'var(--warning)' }}>
+                💡 前往"模型"页面配置大模型以获得更好体验
+              </div>
+            )}
           </div>
         )}
 
