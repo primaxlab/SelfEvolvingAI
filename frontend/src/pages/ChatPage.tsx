@@ -11,45 +11,85 @@ interface Message {
   timestamp: number;
 }
 
-const PROVIDERS = [
-  { id: 'local', name: '本地模式', icon: '🏠', needsKey: false },
-  { id: 'deepseek', name: 'DeepSeek', icon: '🔵', needsKey: true, defaultUrl: 'https://api.deepseek.com/v1', defaultModel: 'deepseek-chat' },
-  { id: 'openai', name: 'OpenAI', icon: '🟢', needsKey: true, defaultUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-4o' },
-  { id: 'claude', name: 'Claude', icon: '🟠', needsKey: true, defaultUrl: 'https://api.anthropic.com/v1', defaultModel: 'claude-sonnet-4-20250514' },
-  { id: 'ollama', name: 'Ollama', icon: '🦙', needsKey: false, defaultUrl: 'http://localhost:11434', defaultModel: 'llama3.2' },
-];
+const PROVIDER_NAMES: Record<string, string> = {
+  local: '本地模式',
+  openai: 'OpenAI',
+  deepseek: 'DeepSeek',
+  claude: 'Claude',
+  ollama: 'Ollama',
+  custom: '自定义',
+};
+
+const PROVIDER_ICONS: Record<string, string> = {
+  local: '🏠',
+  openai: '🟢',
+  deepseek: '🔵',
+  claude: '🟠',
+  ollama: '🦙',
+  custom: '⚙️',
+};
+
+function getConfigFromStorage(): { provider: string; config?: Record<string, any> } {
+  try {
+    const saved = localStorage.getItem('selfevolving_providers');
+    if (saved) {
+      const providers = JSON.parse(saved);
+      for (const [id, cfg] of Object.entries(providers)) {
+        const p = cfg as any;
+        if (p.enabled && p.apiKey) {
+          return {
+            provider: id,
+            config: { base_url: p.baseUrl, api_key: p.apiKey, model: p.model },
+          };
+        }
+      }
+      for (const [id, cfg] of Object.entries(providers)) {
+        const p = cfg as any;
+        if (p.enabled) {
+          return {
+            provider: id,
+            config: { base_url: p.baseUrl, model: p.model },
+          };
+        }
+      }
+    }
+  } catch {}
+  return { provider: 'local' };
+}
 
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [streamMode, setStreamMode] = useState(true);
-  const [providerId, setProviderId] = useState('local');
-  const [apiKey, setApiKey] = useState('');
+  const [activeProvider, setActiveProvider] = useState(getConfigFromStorage());
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const getProviderConfig = () => {
-    const p = PROVIDERS.find(x => x.id === providerId);
-    if (!p || p.id === 'local') return { provider: 'local' };
-    return {
-      provider: p.id,
-      config: {
-        base_url: p.defaultUrl,
-        api_key: apiKey,
-        model: p.defaultModel,
-      },
+  // 每次页面可见时重新读取配置
+  useEffect(() => {
+    const refresh = () => setActiveProvider(getConfigFromStorage());
+    window.addEventListener('focus', refresh);
+    // 也监听 storage 事件（跨标签页同步）
+    window.addEventListener('storage', refresh);
+    // 每秒检查一次（同标签页内模型页面修改后）
+    const interval = setInterval(refresh, 1000);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('storage', refresh);
+      clearInterval(interval);
     };
-  };
+  }, []);
 
   const sendMessage = async () => {
     const text = input.trim();
     if (!text || loading) return;
 
-    const prov = getProviderConfig();
+    // 每次发送时重新读取最新配置
+    const prov = getConfigFromStorage();
 
     const userMsg: Message = {
       id: Date.now().toString(),
@@ -128,7 +168,6 @@ export default function ChatPage() {
     }
   };
 
-  const currentProvider = PROVIDERS.find(x => x.id === providerId);
   const confidenceColor = (c?: number) => {
     if (!c) return 'var(--text-muted)';
     if (c > 0.7) return 'var(--success)';
@@ -136,54 +175,30 @@ export default function ChatPage() {
     return 'var(--error)';
   };
 
+  const isLocal = activeProvider.provider === 'local';
+
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 48px)' }}>
-      {/* 顶部栏 */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <h2 style={{ fontSize: 24, fontWeight: 700 }}>对话</h2>
+        <h2 style={{ fontSize: 24, fontWeight: 700 }}>💬 对话</h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {/* 模型选择下拉框 */}
-          <select
-            value={providerId}
-            onChange={e => {
-              setProviderId(e.target.value);
-            }}
-            style={{
-              padding: '6px 12px',
-              background: 'var(--bg-card)',
-              border: '1px solid var(--border)',
-              borderRadius: 'var(--radius-sm)',
-              color: providerId === 'local' ? 'var(--text-muted)' : 'var(--accent-light)',
-              fontSize: 13,
-              cursor: 'pointer',
-              outline: 'none',
-            }}
-          >
-            {PROVIDERS.map(p => (
-              <option key={p.id} value={p.id}>{p.icon} {p.name}</option>
-            ))}
-          </select>
-
-          {/* API Key 输入（仅在需要时显示） */}
-          {currentProvider?.needsKey && (
-            <input
-              type="password"
-              value={apiKey}
-              onChange={e => setApiKey(e.target.value)}
-              placeholder="API Key"
-              style={{
-                width: 160,
-                padding: '6px 10px',
-                background: 'var(--bg-card)',
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--radius-sm)',
-                color: 'var(--text-primary)',
-                fontSize: 12,
-                outline: 'none',
-              }}
-            />
+          {/* 当前模型显示（只读，配置在模型页面） */}
+          <span style={{
+            fontSize: 12,
+            color: isLocal ? 'var(--text-muted)' : 'var(--accent-light)',
+            padding: '4px 12px',
+            background: 'var(--bg-card)',
+            borderRadius: '12px',
+            border: '1px solid var(--border)',
+          }}>
+            {PROVIDER_ICONS[activeProvider.provider] || '🤖'} {PROVIDER_NAMES[activeProvider.provider] || activeProvider.provider}
+            {activeProvider.config?.model ? ` · ${activeProvider.config.model}` : ''}
+          </span>
+          {!isLocal && (
+            <a href="#/settings" style={{ fontSize: 11, color: 'var(--text-muted)', textDecoration: 'none' }}>
+              更换模型
+            </a>
           )}
-
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
             <input type="checkbox" checked={streamMode} onChange={e => setStreamMode(e.target.checked)} />
             流式
@@ -198,14 +213,14 @@ export default function ChatPage() {
             <div style={{ fontSize: 48, marginBottom: 16 }}>🧬</div>
             <div style={{ fontSize: 18 }}>开始和自我进化AI对话</div>
             <div style={{ fontSize: 13, marginTop: 8 }}>
-              当前: <span style={{ color: providerId === 'local' ? 'var(--text-muted)' : 'var(--accent-light)' }}>
-                {currentProvider?.icon} {currentProvider?.name}
-                {currentProvider?.defaultModel ? ` (${currentProvider.defaultModel})` : ''}
+              当前模型: <span style={{ color: isLocal ? 'var(--text-muted)' : 'var(--accent-light)' }}>
+                {PROVIDER_ICONS[activeProvider.provider]} {PROVIDER_NAMES[activeProvider.provider]}
+                {activeProvider.config?.model ? ` (${activeProvider.config.model})` : ''}
               </span>
             </div>
-            {providerId === 'local' && (
-              <div style={{ fontSize: 12, marginTop: 4, color: 'var(--warning)' }}>
-                在右上角选择模型并输入API Key以获得更好体验
+            {isLocal && (
+              <div style={{ fontSize: 12, marginTop: 8, color: 'var(--warning)' }}>
+                前往 <a href="#/settings" style={{ color: 'var(--accent-light)' }}>模型页面</a> 配置大模型以获得更好体验
               </div>
             )}
           </div>
@@ -248,7 +263,7 @@ export default function ChatPage() {
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="输入消息... (Enter 发送)"
+          placeholder={isLocal ? '本地模式 - 输入消息...' : `与 ${PROVIDER_NAMES[activeProvider.provider]} 对话...`}
           style={{ flex: 1, background: 'transparent', border: 'none', color: 'var(--text-primary)', fontSize: 14, resize: 'none', outline: 'none', minHeight: 24, maxHeight: 120, lineHeight: 1.5 }}
           rows={1}
         />
